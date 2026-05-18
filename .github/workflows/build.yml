@@ -28,11 +28,21 @@ jobs:
 
       - name: Checkout builds
         uses: actions/checkout@v6
-        continue-on-error: true
+        continue-on-error: true  # Gracefully handle first run if branch doesn't exist
         with:
           ref: "builds"
           path: "builds"
-          
+
+      - name: Create builds branch if missing
+        run: |
+          if [ ! -d "$GITHUB_WORKSPACE/builds/.git" ]; then
+            echo "Branch 'builds' not found on remote. Initializing a clean tracking workspace..."
+            mkdir -p $GITHUB_WORKSPACE/builds
+            cd $GITHUB_WORKSPACE/builds
+            git init
+            git checkout -b builds
+            git remote add origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@://github.com{{ github.repository }}.git
+          fi
 
       - name: Clean old builds
         run: |
@@ -159,15 +169,23 @@ jobs:
           echo iStreamFlare=$iStreamFlare >> local.properties
           echo iStreamFlareSecretKey=$iStreamFlareSecretKey >> local.properties
           echo iStreamFlareSalt=$iStreamFlareSalt >> local.properties
+
       - name: Build Plugins
         run: |
           cd $GITHUB_WORKSPACE/src
           chmod +x gradlew
-          ./gradlew make makePluginsJson
-          ./gradlew ensureJarCompatibility
-          cp **/build/*.cs3 $GITHUB_WORKSPACE/builds
-          cp **/build/*.jar $GITHUB_WORKSPACE/builds
-          cp build/plugins.json $GITHUB_WORKSPACE/builds
+          ./gradlew make makePluginsJson ensureJarCompatibility
+          
+          # Use recursive 'find' to handle deep build directories safely
+          find . -type f -name "*.cs3" -exec cp {} $GITHUB_WORKSPACE/builds/ \;
+          find . -type f -name "*.jar" -exec cp {} $GITHUB_WORKSPACE/builds/ \;
+          
+          # Safely copy plugins.json from its output path
+          if [ -f "build/plugins.json" ]; then
+            cp build/plugins.json $GITHUB_WORKSPACE/builds/
+          elif [ -f "plugins.json" ]; then
+            cp plugins.json $GITHUB_WORKSPACE/builds/
+          fi
 
       - name: Push builds
         run: |
@@ -175,6 +193,5 @@ jobs:
           git config --local user.email "actions@github.com"
           git config --local user.name "GitHub Actions"
           git add .
-          git commit --amend -m "Build $GITHUB_SHA" || exit 0   # do not error if nothing to commit
-          git push --force
-          
+          git commit --amend -m "Build $GITHUB_SHA" || git commit -m "Build $GITHUB_SHA" || true
+          git push --force -u origin builds
