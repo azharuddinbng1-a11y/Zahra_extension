@@ -4,6 +4,6 @@
     "description": "Zahra Repository",
     "manifestVersion": 1,
     "pluginLists": [
-      "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/plugins.json"
+      "https://raw.githubusercontent.com/azharuddinbng1-a11y/Zahra_extension/refs/heads/builds/plugins.json"
     ]
 }
