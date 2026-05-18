@@ -76,7 +76,7 @@ subprojects {
         }
 
         lint {
-            targetSdk = 35
+            targetSdk = 36
         }
 
         compileOptions {
