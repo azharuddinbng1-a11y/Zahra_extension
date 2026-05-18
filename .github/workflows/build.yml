@@ -1,6 +1,6 @@
 name: Build
 
-# https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#concurrency
+# https://github.com
 concurrency:
   group: "build"
   cancel-in-progress: true
@@ -190,8 +190,31 @@ jobs:
       - name: Push builds
         run: |
           cd $GITHUB_WORKSPACE/builds
+          
+          # Ensure git workspace is initialized locally
+          if [ ! -d ".git" ]; then
+            git init
+            git remote add origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@://github.com{{ github.repository }}.git
+          fi
+          
+          # Force checkout to the 'builds' branch state explicitly
+          git checkout -b builds 2>/dev/null || git checkout builds
+          
+          # Configure identity metadata
           git config --local user.email "actions@github.com"
           git config --local user.name "GitHub Actions"
+          
+          # Stage artifacts
           git add .
-          git commit --amend -m "Build $GITHUB_SHA" || git commit -m "Build $GITHUB_SHA" || true
-          git push --force -u origin builds
+          
+          # Safely handle fresh commit creation vs amending histories
+          if git commit --amend -m "Build $GITHUB_SHA"; then
+            echo "Amended existing commit history."
+          elif git commit -m "Build $GITHUB_SHA"; then
+            echo "Created a brand-new initial commit."
+          else
+            echo "Nothing new to commit."
+          fi
+          
+          # Push specific branch up securely
+          git push --force origin builds
