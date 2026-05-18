@@ -1,0 +1,9 @@
+{
+    "name": "Zahra Repo",
+    "iconUrl": "https://github.com/azharuddinbng1-a11y/CS3-Data/blob/main/Icons/RepoIcon1.png",
+    "description": "Zahra Repository",
+    "manifestVersion": 1,
+    "pluginLists": [
+      "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/plugins.json"
+    ]
+}
