@@ -180,19 +180,19 @@ jobs:
           cd $GITHUB_WORKSPACE/src
           chmod +x gradlew
           
-          # Step 1: Force standard Android library compilation to populate intermediate workspaces
-          ./gradlew assembleDebug
+          # Step 1: Force baseline compilation tasks to generate core .class binaries
+          ./gradlew compileDebugSources compileDebugJavaWithJavac
           
-          # Step 2: Package compiled outputs into .cs3 and plugin .jar bundles
+          # Step 2: Invoke the Cloudstream toolchain to bundle outputs into .cs3 and .jar files
           ./gradlew make
           
-          # Step 3: Run target compatibility checks
+          # Step 3: Run bytecode optimization and jar structure validations
           ./gradlew ensureJarCompatibility
           
-          # Step 4: Build the master repository index manifest file
+          # Step 4: Build the master repository index catalog configuration manifest
           ./gradlew makePluginsJson
           
-          # Use recursive 'find' to handle multiple build output directories cleanly
+          # Use recursive 'find' to handle multiple build output directories safely
           find . -type f -name "*.cs3" -exec cp {} $GITHUB_WORKSPACE/builds/ \;
           find . -type f -name "*.jar" -exec cp {} $GITHUB_WORKSPACE/builds/ \;
           
@@ -221,4 +221,3 @@ jobs:
           
           # Push specifically to remote destination
           git push --force origin builds
-          
