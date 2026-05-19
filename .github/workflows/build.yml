@@ -1,6 +1,6 @@
 name: Build
 
-# https://github.com
+# https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#concurrency
 concurrency:
   group: "build"
   cancel-in-progress: true
@@ -21,27 +21,29 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout Source
         uses: actions/checkout@v6
         with:
           path: "src"
 
-      - name: Checkout builds
-        uses: actions/checkout@v6
-        continue-on-error: true  # Gracefully handle first run if branch doesn't exist
-        with:
-          ref: "builds"
-          path: "builds"
-
-      - name: Create builds branch if missing
+      - name: Prepare Builds Directory
         run: |
-          if [ ! -d "$GITHUB_WORKSPACE/builds/.git" ]; then
-            echo "Branch 'builds' not found on remote. Initializing a clean tracking workspace..."
-            mkdir -p $GITHUB_WORKSPACE/builds
-            cd $GITHUB_WORKSPACE/builds
-            git init
+          mkdir -p $GITHUB_WORKSPACE/builds
+          cd $GITHUB_WORKSPACE/builds
+          
+          # Initialize fresh local repository tracking
+          git init
+          git config --local user.email "actions@github.com"
+          git config --local user.name "GitHub Actions"
+          git remote add origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@://github.com{{ github.repository }}.git
+          
+          # Check for branch existence on origin to avoid rigid checkout action pattern bugs
+          if git fetch origin builds --depth=1 2>/dev/null; then
+            echo "Remote 'builds' branch located. Merging into local workspace..."
+            git checkout builds
+          else
+            echo "Remote 'builds' branch not found. Constructing a clean deployment timeline..."
             git checkout -b builds
-            git remote add origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@://github.com{{ github.repository }}.git
           fi
 
       - name: Clean old builds
@@ -174,13 +176,21 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/src
           chmod +x gradlew
-          ./gradlew make makePluginsJson ensureJarCompatibility
           
-          # Use recursive 'find' to handle deep build directories safely
+          # Step 1: Force base plugin compilation sequentially to build target binaries
+          ./gradlew make
+          
+          # Step 2: Validate binary structures
+          ./gradlew ensureJarCompatibility
+          
+          # Step 3: Run tracking indexation once compiled outputs are available
+          ./gradlew makePluginsJson
+          
+          # Use deep shell finding to bypass terminal glob copy limits
           find . -type f -name "*.cs3" -exec cp {} $GITHUB_WORKSPACE/builds/ \;
           find . -type f -name "*.jar" -exec cp {} $GITHUB_WORKSPACE/builds/ \;
           
-          # Safely copy plugins.json from its output path
+          # Handle layout variations for indexing properties file
           if [ -f "build/plugins.json" ]; then
             cp build/plugins.json $GITHUB_WORKSPACE/builds/
           elif [ -f "plugins.json" ]; then
@@ -191,30 +201,18 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/builds
           
-          # Ensure git workspace is initialized locally
-          if [ ! -d ".git" ]; then
-            git init
-            git remote add origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@://github.com{{ github.repository }}.git
-          fi
-          
-          # Force checkout to the 'builds' branch state explicitly
-          git checkout -b builds 2>/dev/null || git checkout builds
-          
-          # Configure identity metadata
-          git config --local user.email "actions@github.com"
-          git config --local user.name "GitHub Actions"
-          
-          # Stage artifacts
+          # Stage compiled output binaries
           git add .
           
-          # Safely handle fresh commit creation vs amending histories
+          # Safely manage first-time commits without crashing detached tracking branches
           if git commit --amend -m "Build $GITHUB_SHA"; then
-            echo "Amended existing commit history."
+            echo "Amended historical commit."
           elif git commit -m "Build $GITHUB_SHA"; then
-            echo "Created a brand-new initial commit."
+            echo "Generated initial deployment commit record."
           else
-            echo "Nothing new to commit."
+            echo "No structural variations found."
           fi
           
-          # Push specific branch up securely
+          # Deliver output upward
           git push --force origin builds
+          
