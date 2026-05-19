@@ -180,20 +180,23 @@ jobs:
           cd $GITHUB_WORKSPACE/src
           chmod +x gradlew
           
-          # Step 1: Force base plugin compilation sequentially to build target binaries
+          # Step 1: Force standard Android library compilation to populate intermediate workspaces
+          ./gradlew assembleDebug
+          
+          # Step 2: Package compiled outputs into .cs3 and plugin .jar bundles
           ./gradlew make
           
-          # Step 2: Validate binary structures
+          # Step 3: Run target compatibility checks
           ./gradlew ensureJarCompatibility
           
-          # Step 3: Run tracking indexation once compiled outputs are available
+          # Step 4: Build the master repository index manifest file
           ./gradlew makePluginsJson
           
-          # Use deep shell finding to bypass terminal glob copy limits
+          # Use recursive 'find' to handle multiple build output directories cleanly
           find . -type f -name "*.cs3" -exec cp {} $GITHUB_WORKSPACE/builds/ \;
           find . -type f -name "*.jar" -exec cp {} $GITHUB_WORKSPACE/builds/ \;
           
-          # Handle layout variations for indexing properties file
+          # Copy plugins.json safely depending on output directory layout
           if [ -f "build/plugins.json" ]; then
             cp build/plugins.json $GITHUB_WORKSPACE/builds/
           elif [ -f "plugins.json" ]; then
@@ -204,10 +207,10 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/builds
           
-          # Stage compiled output binaries
+          # Stage artifacts
           git add .
           
-          # Safely manage first-time commits without crashing detached tracking branches
+          # Safely manage first-time commits vs amending histories
           if git commit --amend -m "Build $GITHUB_SHA"; then
             echo "Amended historical commit."
           elif git commit -m "Build $GITHUB_SHA"; then
@@ -216,6 +219,6 @@ jobs:
             echo "No structural variations found."
           fi
           
-          # Deliver output upward
+          # Push specifically to remote destination
           git push --force origin builds
           
