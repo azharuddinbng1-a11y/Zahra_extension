@@ -53,7 +53,7 @@ subprojects {
     apply(plugin = "com.lagradost.cloudstream3.gradle")
 
     cloudstream {
-        setRepo(System.getenv("GITHUB_REPOSITORY") ?: "https://github.com/phisher98/cloudstream-extensions-phisher")
+        setRepo(System.getenv("GITHUB_REPOSITORY") ?: "https://github.com")
         authors = listOf("azharuddinbng1-a11y")
     }
 
@@ -89,19 +89,21 @@ subprojects {
 
     dependencies {
         val implementation by configurations
-        val api by configurations                 // Added configuration reference
+        val compileOnly by configurations
         val cloudstream by configurations
+        
         cloudstream("com.lagradost:cloudstream3:pre-release")
 
-        // Expose annotations to compilation boundaries using 'api' to fix 'Nullable' warning
-        api("androidx.annotation:annotation:1.10.0")
+        // Fixes the inaccessible 'Nullable' warning across compilation boundaries
+        compileOnly("org.jetbrains:annotations:24.1.0")
+        implementation("androidx.annotation:annotation:1.10.0")
 
-        // Other dependencies
+        // Core dependencies
         implementation(kotlin("stdlib"))
         implementation("com.github.Blatzar:NiceHttp:0.4.18")
         implementation("org.jsoup:jsoup:1.22.2")
         
-        // Aligned Jackson module versions to match and prevent runtime errors
+        // Aligned Jackson module versions
         implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.15.2")
         implementation("com.fasterxml.jackson.core:jackson-databind:2.15.2")
         
