@@ -1,4 +1,4 @@
-package com.hindmoviez
+package com.phisher98
 
 import com.google.gson.Gson
 import com.lagradost.cloudstream3.HomePageResponse
