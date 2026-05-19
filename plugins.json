@@ -1,0 +1,48 @@
+[
+    {
+        "url": "https://raw.githubusercontent.com/azharuddinbng1-a11y/Zahra_extension/builds/Hindmoviez.cs3",
+        "status": 1,
+        "version": 7,
+        "name": "Hindmoviez",
+        "internalName": "Hindmoviez",
+        "authors": [
+            "azharuddinbng1-a11y"
+        ],
+        "description": "Watch Movies & TvSeries (Multi-Lang)",
+        "fileSize": 45849,
+        "repositoryUrl": "https://github.com/azharuddinbng1-a11y/Zahra_extension",
+        "language": "hi",
+        "tvTypes": [
+            "Movie",
+            "TvSeries"
+        ],
+        "iconUrl": "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/Icons/hindmoviez.png",
+        "apiVersion": 1,
+        "fileHash": "sha256-0c33aa98acc46f8c0bf541108be786ee91abd54990291218ad875b96554603d9"
+    },
+    {
+        "url": "https://raw.githubusercontent.com/azharuddinbng1-a11y/Zahra_extension/builds/XDMovies.cs3",
+        "status": 1,
+        "version": 30,
+        "name": "XDMovies",
+        "internalName": "XDMovies",
+        "authors": [
+            "azharuddinbng1-a11y"
+        ],
+        "description": "Watch Latest Movies",
+        "fileSize": 78181,
+        "repositoryUrl": "https://github.com/azharuddinbng1-a11y/Zahra_extension",
+        "language": "en",
+        "tvTypes": [
+            "AsianDrama",
+            "TvSeries",
+            "Anime",
+            "Movie",
+            "Cartoon",
+            "AnimeMovie"
+        ],
+        "iconUrl": "https://top.xdmovies.wtf/assets/logo1.png",
+        "apiVersion": 1,
+        "fileHash": "sha256-9a60e88570885de3573b1f9df494c807a0c3f1bb0935c0a71c5bb86cb9f5b003"
+    }
+]
