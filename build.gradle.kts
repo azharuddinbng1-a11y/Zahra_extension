@@ -107,7 +107,6 @@ subprojects {
         
         implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
         implementation("org.mozilla:rhino:1.9.1")
-        childProjectDependencyOrNone("me.xdrop:fuzzywuzzy:1.4.0") // me.xdrop configuration wrapper if isolated
         implementation("me.xdrop:fuzzywuzzy:1.4.0")
         implementation("com.google.code.gson:gson:2.14.0")
         implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
