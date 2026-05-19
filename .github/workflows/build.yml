@@ -1,6 +1,6 @@
 name: Build
 
-# https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#concurrency
+# https://github.com
 concurrency:
   group: "build"
   cancel-in-progress: true
@@ -31,11 +31,14 @@ jobs:
           mkdir -p $GITHUB_WORKSPACE/builds
           cd $GITHUB_WORKSPACE/builds
           
-          # Initialize fresh local repository tracking
+          # Initialize fresh local repository tracking with an explicit branch name
+          git config --global init.defaultBranch builds
           git init
           git config --local user.email "actions@github.com"
           git config --local user.name "GitHub Actions"
-          git remote add origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@://github.com{{ github.repository }}.git
+          
+          # Quoted the remote URL securely to eliminate shell parsing errors (Exit Code 129)
+          git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@://github.com{{ github.repository }}.git"
           
           # Check for branch existence on origin to avoid rigid checkout action pattern bugs
           if git fetch origin builds --depth=1 2>/dev/null; then
