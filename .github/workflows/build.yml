@@ -180,23 +180,19 @@ jobs:
           cd $GITHUB_WORKSPACE/src
           chmod +x gradlew
           
-          # Step 1: Force baseline compilation tasks to generate core .class binaries
-          ./gradlew compileDebugSources compileDebugJavaWithJavac
+          # Step 1: Run the standard full Gradle lifecycle to generate all classes and pluginClass components safely
+          ./gradlew clean build -x test
           
-          # Step 2: Invoke the Cloudstream toolchain to bundle outputs into .cs3 and .jar files
+          # Step 2: Bundle everything together using Cloudstream extension tools
           ./gradlew make
           
-          # Step 3: Run bytecode optimization and jar structure validations
-          ./gradlew ensureJarCompatibility
+          # Step 3: Run target checks and produce master registry data
+          ./gradlew ensureJarCompatibility makePluginsJson
           
-          # Step 4: Build the master repository index catalog configuration manifest
-          ./gradlew makePluginsJson
-          
-          # Use recursive 'find' to handle multiple build output directories safely
+          # Safe file extraction
           find . -type f -name "*.cs3" -exec cp {} $GITHUB_WORKSPACE/builds/ \;
           find . -type f -name "*.jar" -exec cp {} $GITHUB_WORKSPACE/builds/ \;
           
-          # Copy plugins.json safely depending on output directory layout
           if [ -f "build/plugins.json" ]; then
             cp build/plugins.json $GITHUB_WORKSPACE/builds/
           elif [ -f "plugins.json" ]; then
@@ -221,3 +217,4 @@ jobs:
           
           # Push specifically to remote destination
           git push --force origin builds
+          
