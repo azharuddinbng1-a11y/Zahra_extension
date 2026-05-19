@@ -1,4 +1,4 @@
-package com.hindmoviez
+package com.phisher98
 
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.google.gson.annotations.SerializedName
