@@ -58,7 +58,7 @@ subprojects {
     }
 
     android {
-        namespace = "com.phisher98"
+        namespace = "com.zahraextension"
         compileSdk = 36
 
         defaultConfig {
