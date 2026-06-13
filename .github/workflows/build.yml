@@ -38,7 +38,7 @@ jobs:
           git config --local user.name "GitHub Actions"
           
           # Quoted the remote URL securely to eliminate shell parsing errors (Exit Code 129)
-          git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@://github.com{{ github.repository }}.git"
+          git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
           
           # Check for branch existence on origin to avoid rigid checkout action pattern bugs
           if git fetch origin builds --depth=1 2>/dev/null; then
