@@ -50,9 +50,7 @@ class Hubdrive : ExtractorApi() {
 class HubCloud : ExtractorApi() {
 
     override val name = "Hub-Cloud"
-    override var mainUrl: String = runBlocking {
-        XDMoviesProvider.getDomains()?.hubcloud ?: "https://hubcloud.foo"
-    }
+    override var mainUrl: String = "https://hubcloud.foo"
     override val requiresReferer = false
 
     override suspend fun getUrl(
