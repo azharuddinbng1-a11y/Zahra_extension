@@ -94,7 +94,7 @@ class XDMovies : MainAPI() {
                 name = request.name,
                 list = home
                 ),
-            hasNext = true
+            hasNext = home.isNotEmpty()
         )
     }
 
