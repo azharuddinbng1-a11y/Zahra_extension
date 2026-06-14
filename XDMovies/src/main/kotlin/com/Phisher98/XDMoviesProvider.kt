@@ -6,7 +6,7 @@ import com.lagradost.cloudstream3.plugins.BasePlugin
 import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
 
 @CloudstreamPlugin
-class XDMoviesProvider: BasePlugin() {
+class XDMoviesProvider: Plugin() {
     override fun load() {
         registerMainAPI(XDMovies())
         registerExtractorAPI(Hubdrive())
