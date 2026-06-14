@@ -83,32 +83,37 @@ class XDMovies : MainAPI() {
         "category.php?ott=JioHotstar" to "Hotstar",
     )
 
-    override suspend fun quickSearch(query: String): List<SearchResponse>? = search(query,1)?.items
+    override suspend fun quickSearch(query: String): List<SearchResponse>? = search(query, 1)?.items
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val document = app.get("$mainUrl/${if (request.data.contains("Homepage")) "?" else "${request.data}&"}page=$page").document
-        val home = document.select("div.container div.movie-grid a").mapNotNull { it.toSearchResult() }
+        val url = if (request.data.contains("Homepage")) {
+            "$mainUrl/?page=$page"
+        } else {
+            "$mainUrl/${request.data}&page=$page"
+        }
+
+        val document = app.get(url, interceptor = CloudflareKiller()).document
+        val home = document.select("div.movie-grid a").mapNotNull { it.toSearchResult() }
 
         return newHomePageResponse(
             list = HomePageList(
                 name = request.name,
                 list = home
-                ),
+            ),
             hasNext = home.isNotEmpty()
         )
     }
 
-    private fun Element.toSearchResult(): SearchResponse {
-        val title = this.safeText("h3")
+    private fun Element.toSearchResult(): SearchResponse? {
+        val title = this.selectFirst("h3")?.text() ?: return null
         val href = fixUrl(this.attr("href"))
-        val posterUrl = fixUrlNull(this.safeAttr("img", "src"))
+        val posterUrl = fixUrlNull(this.selectFirst("img")?.attr("src"))
         val quality = this.selectFirst("div.quality-badge")?.ownText()
         return newMovieSearchResponse(title, href, TvType.Movie) {
             this.posterUrl = posterUrl
             this.quality = getSearchQuality(quality)
         }
     }
-
 
     private fun highestQuality(qualities: List<String>): String? {
         return qualities
@@ -118,7 +123,6 @@ class XDMovies : MainAPI() {
             .maxByOrNull { it.first }
             ?.second
     }
-
 
     private fun SearchData.SearchDataItem.toSearchResult(): SearchResponse {
         val isTv = type.equals("tv", ignoreCase = true) || type.equals("series", ignoreCase = true)
@@ -134,12 +138,11 @@ class XDMovies : MainAPI() {
     override suspend fun search(query: String, page: Int): SearchResponseList? {
         val searchData = app.get(
             "$mainUrl/php/search_api.php?query=$query&fuzzy=true",
-            headers
+            headers = headers
         ).parsedSafe<SearchData>() ?: return null
         val results = searchData.mapNotNull { it.toSearchResult() }
         return results.toNewSearchResponseList()
     }
-
 
     override suspend fun load(url: String): LoadResponse {
         val document = app.get(url, interceptor = CloudflareKiller()).document
@@ -152,16 +155,25 @@ class XDMovies : MainAPI() {
         val poster = detailsWrapper?.selectFirst("img")?.attr("src").orEmpty()
         val backgroundPoster = headerStyle.substringAfter("url('").substringBefore("');")
         val audios = document.select("span.neon-audio").text().split(",").map { it.trim() }
-        val tags = (document.select("p:contains(Genres:)").first()?.ownText()?.split(",")?.map { it.trim() } ?: emptyList()) + audios
-        val firstAirDate = document.select("p:contains(First Air Date:)").text().removePrefix("First Air Date:").trim()
+        val tags = (document.select("p:contains(Genres:)").first()?.ownText()?.split(",")
+            ?.map { it.trim() } ?: emptyList()) + audios
+        val firstAirDate =
+            document.select("p:contains(First Air Date:)").text().removePrefix("First Air Date:")
+                .trim()
         val year = firstAirDate.substringBefore("-").toIntOrNull()
         val description = document.select("p.overview").text()
-        val rating = Score.from10(document.select("p:contains(Rating:)").text().removePrefix("Rating:").trim().substringBefore("/").trim())
+        val rating = Score.from10(
+            document.select("p:contains(Rating:)").text().removePrefix("Rating:").trim()
+                .substringBefore("/").trim()
+        )
         val contentType = url.substringAfter("$mainUrl/").substringBefore("/")
         val source = document.select("#source-info span").text()
         val tvType = when {
             contentType.equals("anime", ignoreCase = true) -> TvType.Anime
-            contentType.equals("tv", ignoreCase = true) || contentType.equals("series", ignoreCase = true) -> TvType.TvSeries
+            contentType.equals("tv", ignoreCase = true) || contentType.equals(
+                "series",
+                ignoreCase = true
+            ) -> TvType.TvSeries
             else -> TvType.Movie
         }
 
@@ -179,7 +191,9 @@ class XDMovies : MainAPI() {
         val imdbId = tmdbRes?.imdbId
 
         val creditsJsonText = runCatching {
-            app.get("$TMDBAPI/$tmdbTvTypeSlug/$tmdbId/credits?api_key=1865f43a0549ca50d341dd9ab8b29f49&language=en-US").text
+            app.get(
+                "$TMDBAPI/$tmdbTvTypeSlug/$tmdbId/credits?api_key=1865f43a0549ca50d341dd9ab8b29f49&language=en-US"
+            ).text
         }.getOrNull()
 
         val actors = parseTmdbActors(creditsJsonText)
@@ -216,8 +230,12 @@ class XDMovies : MainAPI() {
         val responseData = imdbId
             ?.takeIf { it.isNotBlank() && it != "0" }
             ?.let {
-                val jsonResponse = app.get("$CINEMETAURL/meta/$tvTypeSlugForCinemeta/$it.json").text
-                if (jsonResponse.startsWith("{")) gson.fromJson(jsonResponse, ResponseData::class.java) else null
+                val jsonResponse =
+                    app.get("$CINEMETAURL/meta/$tvTypeSlugForCinemeta/$it.json").text
+                if (jsonResponse.startsWith("{")) gson.fromJson(
+                    jsonResponse,
+                    ResponseData::class.java
+                ) else null
             }
 
         if (tvType == TvType.TvSeries || tvType == TvType.Anime) {
@@ -225,9 +243,12 @@ class XDMovies : MainAPI() {
             val seasonSections = downloadRoot?.select("div.season-section") ?: emptyList()
 
             for (seasonSection in seasonSections) {
-                val seasonNum = seasonNumRegex1.find(seasonSection.html())?.groupValues?.get(1)?.toIntOrNull()
-                    ?: seasonNumRegex2.find(seasonSection.selectFirst("button.toggle-season-btn")?.text().orEmpty())?.groupValues?.get(1)?.toIntOrNull()
-                    ?: 1
+                val seasonNum =
+                    seasonNumRegex1.find(seasonSection.html())?.groupValues?.get(1)?.toIntOrNull()
+                        ?: seasonNumRegex2.find(
+                            seasonSection.selectFirst("button.toggle-season-btn")?.text().orEmpty()
+                        )?.groupValues?.get(1)?.toIntOrNull()
+                        ?: 1
 
                 val tmdbSeasonRes: TMDBRes? = runCatching {
                     val text = app.get(
@@ -237,7 +258,7 @@ class XDMovies : MainAPI() {
                 }.getOrNull()
 
                 val episodeMap = mutableMapOf<Int, MutableList<String>>()
-                val packs = mutableListOf<Pair<Int, Pair<String, String>>>() // index -> (link, title)
+                val packs = mutableListOf<Pair<Int, Pair<String, String>>>()
 
                 seasonSection.select(".episode-card").forEach { card ->
                     val cardTitle = card.selectFirst(".episode-title")?.text().orEmpty()
@@ -245,20 +266,28 @@ class XDMovies : MainAPI() {
                     val epNum = m?.groupValues?.get(2)?.toIntOrNull()
                         ?: (card.parent()?.children()?.indexOf(card)?.plus(1) ?: 1)
                     val links = card.select("a.movie-download-btn, a.download-button")
-                        .mapNotNull { it -> it.attr("href").trim().takeIf { it.isNotEmpty() } }
-                    if (links.isNotEmpty()) episodeMap.getOrPut(epNum) { mutableListOf() }.addAll(links)
+                        .mapNotNull { it ->
+                            it.attr("href").trim().takeIf { it.isNotEmpty() }
+                        }
+                    if (links.isNotEmpty()) episodeMap.getOrPut(epNum) { mutableListOf() }
+                        .addAll(links)
                 }
 
                 seasonSection.select(".packs-grid .pack-card").forEachIndexed { idx, pack ->
-                    val link = pack.selectFirst("a.download-button")?.attr("href")?.trim().takeIf { !it.isNullOrBlank() } ?: return@forEachIndexed
+                    val link =
+                        pack.selectFirst("a.download-button")?.attr("href")?.trim()
+                            .takeIf { !it.isNullOrBlank() }
+                            ?: return@forEachIndexed
                     val title = "Episode ${idx + 1} [Packs/Zips]"
                     packs += Pair(idx + 1, Pair(link, title))
                 }
 
                 if (episodeMap.isNotEmpty()) {
                     for ((epNum, links) in episodeMap) {
-                        val tmdbEpisode = tmdbSeasonRes?.episodes?.find { it.episodeNumber == epNum }
-                        val info = responseData?.meta?.videos?.find { it.season == seasonNum && it.episode == epNum }
+                        val tmdbEpisode =
+                            tmdbSeasonRes?.episodes?.find { it.episodeNumber == epNum }
+                        val info =
+                            responseData?.meta?.videos?.find { it.season == seasonNum && it.episode == epNum }
                         val name = tmdbEpisode?.name ?: info?.name ?: "Episode $epNum"
                         val desc = tmdbEpisode?.overview ?: info?.overview
                         val poster = tmdbEpisode?.stillPath?.let { TMDBIMAGEBASEURL + it }
@@ -279,16 +308,17 @@ class XDMovies : MainAPI() {
                     for ((idx, pair) in packs) {
                         val (link, title) = pair
                         val epNum = idx
-                        val tmdbEpisode = tmdbSeasonRes?.episodes?.find { it.episodeNumber == epNum }
-                        val info = responseData?.meta?.videos?.find { it.season == seasonNum && it.episode == epNum }
-                        val name = title
+                        val tmdbEpisode =
+                            tmdbSeasonRes?.episodes?.find { it.episodeNumber == epNum }
+                        val info =
+                            responseData?.meta?.videos?.find { it.season == seasonNum && it.episode == epNum }
                         val desc = tmdbEpisode?.overview ?: info?.overview
                         val poster = tmdbEpisode?.stillPath?.let { TMDBIMAGEBASEURL + it }
                         val score = Score.from10(tmdbEpisode?.voteAverage)
                         val airDate = tmdbEpisode?.airDate
 
                         episodes += newEpisode(listOf(link).toJson()) {
-                            this.name = name
+                            this.name = title
                             this.season = seasonNum
                             this.episode = epNum
                             this.posterUrl = poster
@@ -303,13 +333,13 @@ class XDMovies : MainAPI() {
             return newTvSeriesLoadResponse(title, url, tvType, episodes) {
                 this.posterUrl = poster
                 this.backgroundPosterUrl = backgroundPoster
-                try { this.logoUrl = logoUrl } catch(_:Throwable){}
+                try { this.logoUrl = logoUrl } catch (_: Throwable) {}
                 this.year = year
                 this.plot = description
                 this.tags = tags.ifEmpty { genres }
                 this.score = rating
                 this.contentRating = source
-                this.actors=actors
+                this.actors = actors
                 addImdbId(imdbId)
             }
         }
@@ -317,13 +347,13 @@ class XDMovies : MainAPI() {
         return newMovieLoadResponse(title, url, TvType.Movie, href) {
             this.posterUrl = poster
             this.backgroundPosterUrl = backgroundPoster
-            try { this.logoUrl = logoUrl } catch(_:Throwable){}
+            try { this.logoUrl = logoUrl } catch (_: Throwable) {}
             this.year = year
             this.plot = description
             this.tags = tags.ifEmpty { genres }
             this.score = rating
             this.contentRating = source
-            this.actors=actors
+            this.actors = actors
             addImdbId(imdbId)
         }
     }
@@ -352,12 +382,14 @@ class XDMovies : MainAPI() {
 
         val successCount = AtomicInteger(0)
 
-        // All links fire simultaneously — callbacks stream in as each one finishes
         coroutineScope {
             links.map { link ->
                 launch(Dispatchers.IO) {
                     runCatching {
-                        loadExtractor(link, name, subtitleCallback, callback)
+                        val finalLink = if (link.contains("link.xdmovies.wtf")) {
+                            bypassXD(link) ?: link
+                        } else link
+                        loadExtractor(finalLink, name, subtitleCallback, callback)
                         successCount.incrementAndGet()
                     }.onFailure {
                         Log.e("XDMovies", "Failed to load link: $link")
@@ -368,5 +400,4 @@ class XDMovies : MainAPI() {
 
         return successCount.get() > 0
     }
-
 }
