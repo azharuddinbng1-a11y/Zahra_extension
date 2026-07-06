@@ -230,9 +230,9 @@ class XDMovies : MainAPI() {
 
         // ✅ Season number: id="season-episodes-1" se extract karo
         document.select("div[id^=season-episodes-]").forEach { seasonDiv ->
-            val seasonNum = seasonDiv.id
-                .removePrefix("season-episodes-")
-                .toIntOrNull() ?: 1
+            val seasonNum = seasonDiv.id()
+    .removePrefix("season-episodes-")
+    .toIntOrNull() ?: 1
 
             val tmdbSeasonRes: TMDBRes? = runCatching {
                 gson.fromJson(
@@ -273,9 +273,9 @@ class XDMovies : MainAPI() {
 
         // ✅ Packs: div[id^=season-packs-] se
         document.select("div[id^=season-packs-]").forEach { packsDiv ->
-            val seasonNum = packsDiv.id
-                .removePrefix("season-packs-")
-                .toIntOrNull() ?: 1
+            val seasonNum = packsDiv.id()
+    .removePrefix("season-packs-")
+    .toIntOrNull() ?: 1
 
             packsDiv.select("div.pack-card").forEachIndexed { idx, pack ->
                 val link = pack.selectFirst("a.download-button")
