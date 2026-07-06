@@ -28,6 +28,7 @@ import okhttp3.WebSocketListener
 import org.json.JSONObject
 import java.net.URI
 import java.security.MessageDigest
+import com.lagradost.cloudstream3.network.CloudflareKiller
 
 class Hubdrive : ExtractorApi() {
     override val name = "Hubdrive"
@@ -601,4 +602,24 @@ suspend fun bypassXD(url: String): String? {
         allowRedirects = false,
         headers = cookieHeaders
     ).headers["location"]
+}
+
+).text
+            )
+            finalToken = json.optString("token").takeIf { it.isNotEmpty() }
+        } catch (_: Exception) {}
+        if (finalToken == null) delay(2000L)
+    }
+
+    val token = finalToken ?: return null
+
+    // ── STEP 5: Redirect se final HubCloud URL lo ─────────────────────────────
+    return try {
+        val res = app.get(
+            "$baseUrl/api/redirect/$token",
+            headers = cookieHeaders,
+            allowRedirects = false
+        )
+        res.headers["location"] ?: res.headers["Location"]
+    } catch (_: Exception) { null }
 }
