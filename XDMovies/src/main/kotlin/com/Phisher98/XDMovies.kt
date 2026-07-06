@@ -145,211 +145,191 @@ class XDMovies : MainAPI() {
     }
 
     override suspend fun load(url: String): LoadResponse {
-        val document = app.get(url, interceptor = CloudflareKiller()).document
-        val infoDiv = document.selectFirst("div.info")
-        val detailsWrapper = document.selectFirst("div.details-wrapper")
-        val headerStyle = document.selectFirst("#movie-header")?.attr("style").orEmpty()
-        val downloadRoot = document.selectFirst("#download-links, .download")
+    val document = app.get(url, interceptor = CloudflareKiller()).document
 
-        val title = infoDiv?.safeText("h2").orEmpty()
-        val poster = detailsWrapper?.selectFirst("img")?.attr("src").orEmpty()
-        val backgroundPoster = headerStyle.substringAfter("url('").substringBefore("');")
-        val audios = document.select("span.neon-audio").text().split(",").map { it.trim() }
-        val tags = (document.select("p:contains(Genres:)").first()?.ownText()?.split(",")
-            ?.map { it.trim() } ?: emptyList()) + audios
-        val firstAirDate =
-            document.select("p:contains(First Air Date:)").text().removePrefix("First Air Date:")
-                .trim()
-        val year = firstAirDate.substringBefore("-").toIntOrNull()
-        val description = document.select("p.overview").text()
-        val rating = Score.from10(
-            document.select("p:contains(Rating:)").text().removePrefix("Rating:").trim()
-                .substringBefore("/").trim()
-        )
-        val contentType = url.substringAfter("$mainUrl/").substringBefore("/")
-        val source = document.select("#source-info span").text()
-        val tvType = when {
-            contentType.equals("anime", ignoreCase = true) -> TvType.Anime
-            contentType.equals("tv", ignoreCase = true) || contentType.equals(
-                "series",
-                ignoreCase = true
-            ) -> TvType.TvSeries
-            else -> TvType.Movie
+    val infoDiv = document.selectFirst("div.info")
+    val detailsWrapper = document.selectFirst("div.details-wrapper")
+    val headerStyle = document.selectFirst("#movie-header")?.attr("style").orEmpty()
+    val downloadRoot = document.selectFirst("#download-links, .download, div[id*=download]")
+
+    val title = infoDiv?.selectFirst("h2")?.text()
+        ?: document.selectFirst("h1, h2")?.text().orEmpty()
+
+    // Poster — multiple selectors try karo
+    val poster = detailsWrapper?.selectFirst("img")?.attr("src")
+        ?: document.selectFirst("div.details-wrapper img, img.poster, .movie-poster img")?.attr("src")
+        ?: document.selectFirst("meta[property=og:image]")?.attr("content")
+        ?: ""
+
+    val backgroundPoster = headerStyle.substringAfter("url('").substringBefore("');")
+        .takeIf { it.isNotBlank() } ?: poster
+
+    val audios = document.select("span.neon-audio").text()
+        .split(",").map { it.trim() }.filter { it.isNotBlank() }
+
+    val tags = (document.select("p:contains(Genres:)").firstOrNull()
+        ?.ownText()?.split(",")?.map { it.trim() } ?: emptyList()) + audios
+
+    val firstAirDate = document.select("p:contains(First Air Date:)").text()
+        .removePrefix("First Air Date:").trim()
+    val year = firstAirDate.substringBefore("-").toIntOrNull()
+
+    // Plot — multiple selectors
+    val description = document.selectFirst("p.overview, div.overview, p.plot, div.plot, p.description")
+        ?.text()
+        ?: document.select("p").firstOrNull { it.text().length > 100 }?.text()
+        ?: ""
+
+    val rating = Score.from10(
+        document.select("p:contains(Rating:)").text()
+            .removePrefix("Rating:").trim().substringBefore("/").trim()
+    )
+
+    val contentType = url.substringAfter("$mainUrl/").substringBefore("/")
+    val source = document.select("#source-info span").text()
+
+    // TvType detection — title + URL + page content
+    val tvType = when {
+        contentType.equals("anime", ignoreCase = true) -> TvType.Anime
+        contentType.equals("tv", ignoreCase = true) ||
+        contentType.equals("series", ignoreCase = true) -> TvType.TvSeries
+        document.selectFirst("div.season-section, div.episodes-list, .episode-card") != null -> TvType.TvSeries
+        else -> TvType.Movie
+    }
+
+    val tmdbTvTypeSlug = if (tvType == TvType.Movie) "movie" else "tv"
+    val tvTypeSlugForCinemeta = if (tvType == TvType.Movie) "movie" else "series"
+    val tmdbId = extractTmdbId(url) ?: 0
+
+    val tmdbResText = runCatching {
+        app.get("$TMDBAPI/$tmdbTvTypeSlug/$tmdbId/external_ids?api_key=1865f43a0549ca50d341dd9ab8b29f49").text
+    }.getOrNull()
+
+    val tmdbRes = gson.fromJson(tmdbResText, IMDB::class.java)
+    val imdbId = tmdbRes?.imdbId
+
+    val creditsJsonText = runCatching {
+        app.get("$TMDBAPI/$tmdbTvTypeSlug/$tmdbId/credits?api_key=1865f43a0549ca50d341dd9ab8b29f49&language=en-US").text
+    }.getOrNull()
+    val actors = parseTmdbActors(creditsJsonText)
+
+    val detailsJsonText = runCatching {
+        app.get("$TMDBAPI/$tmdbTvTypeSlug/$tmdbId?api_key=1865f43a0549ca50d341dd9ab8b29f49&language=en-US").text
+    }.getOrNull()
+
+    val genres: List<String> = detailsJsonText
+        ?.let { JSONObject(it) }
+        ?.optJSONArray("genres")
+        ?.let { array ->
+            (0 until array.length()).mapNotNull { i ->
+                array.optJSONObject(i)?.optString("name").takeIf { it!!.isNotBlank() }
+            }
+        } ?: emptyList()
+
+    // TMDB se plot bhi lo agar site pe nahi mila
+    val tmdbPlot = detailsJsonText?.let {
+        JSONObject(it).optString("overview").takeIf { s -> s.isNotBlank() }
+    }
+
+    val logoUrl = fetchTmdbLogoUrl(
+        tmdbAPI = "https://api.themoviedb.org/3",
+        apiKey = "98ae14df2b8d8f8f8136499daf79f0e0",
+        type = tvType,
+        tmdbId = tmdbId,
+        appLangCode = "en"
+    )
+
+    // Movie download links
+    val downloadLinks = document.select(
+        "div.download-item a, a.movie-download-btn, a.download-button"
+    ).mapNotNull { it.absUrl("href").takeIf { link -> link.isNotEmpty() } }
+
+    val href = downloadLinks.toJson()
+
+    val responseData = imdbId
+        ?.takeIf { it.isNotBlank() && it != "0" }
+        ?.let {
+            val jsonResponse = app.get("$CINEMETAURL/meta/$tvTypeSlugForCinemeta/$it.json").text
+            if (jsonResponse.startsWith("{")) gson.fromJson(jsonResponse, ResponseData::class.java)
+            else null
         }
 
-        val tmdbTvTypeSlug = if (tvType == TvType.Movie) "movie" else "tv"
-        val tvTypeSlugForCinemeta = if (tvType == TvType.Movie) "movie" else "series"
-        val tmdbId = extractTmdbId(url) ?: 0
+    val finalPlot = tmdbPlot ?: description.takeIf { it.isNotBlank() } ?: responseData?.meta?.description
 
-        val tmdbResText: String? = runCatching {
-            app.get(
-                "$TMDBAPI/$tmdbTvTypeSlug/$tmdbId/external_ids?api_key=1865f43a0549ca50d341dd9ab8b29f49"
-            ).text
-        }.getOrNull()
+    if (tvType == TvType.TvSeries || tvType == TvType.Anime) {
+        val episodes = mutableListOf<Episode>()
+        val seasonSections = downloadRoot?.select("div.season-section") ?: emptyList()
 
-        val tmdbRes = gson.fromJson(tmdbResText, IMDB::class.java)
-        val imdbId = tmdbRes?.imdbId
+        for (seasonSection in seasonSections) {
+            val seasonNum = seasonNumRegex1.find(seasonSection.html())?.groupValues?.get(1)?.toIntOrNull()
+                ?: seasonNumRegex2.find(
+                    seasonSection.selectFirst("button.toggle-season-btn")?.text().orEmpty()
+                )?.groupValues?.get(1)?.toIntOrNull()
+                ?: 1
 
-        val creditsJsonText = runCatching {
-            app.get(
-                "$TMDBAPI/$tmdbTvTypeSlug/$tmdbId/credits?api_key=1865f43a0549ca50d341dd9ab8b29f49&language=en-US"
-            ).text
-        }.getOrNull()
+            val tmdbSeasonRes: TMDBRes? = runCatching {
+                val text = app.get(
+                    "$TMDBAPI/tv/$tmdbId/season/$seasonNum?api_key=1865f43a0549ca50d341dd9ab8b29f49&language=en-US"
+                ).text
+                gson.fromJson(text, TMDBRes::class.java)
+            }.getOrNull()
 
-        val actors = parseTmdbActors(creditsJsonText)
+            val episodeMap = mutableMapOf<Int, MutableList<String>>()
+            val packs = mutableListOf<Pair<Int, Pair<String, String>>>()
 
-        val detailsJsonText = runCatching {
-            app.get(
-                "$TMDBAPI/$tmdbTvTypeSlug/$tmdbId?api_key=1865f43a0549ca50d341dd9ab8b29f49&language=en-US"
-            ).text
-        }.getOrNull()
-
-        val genres: List<String> = detailsJsonText
-            ?.let { JSONObject(it) }
-            ?.optJSONArray("genres")
-            ?.let { array ->
-                (0 until array.length()).mapNotNull { i ->
-                    array.optJSONObject(i)?.optString("name").takeIf { it!!.isNotBlank() }
-                }
-            }
-            ?: emptyList()
-
-        val logoUrl = fetchTmdbLogoUrl(
-            tmdbAPI = "https://api.themoviedb.org/3",
-            apiKey = "98ae14df2b8d8f8f8136499daf79f0e0",
-            type = tvType,
-            tmdbId = tmdbId,
-            appLangCode = "en"
-        )
-
-        val downloadLinks = document.select("div.download-item a")
-            .mapNotNull { it.attr("href").trim().takeIf { link -> link.isNotEmpty() } }
-
-        val href = JSONArray(downloadLinks).toString()
-
-        val responseData = imdbId
-            ?.takeIf { it.isNotBlank() && it != "0" }
-            ?.let {
-                val jsonResponse =
-                    app.get("$CINEMETAURL/meta/$tvTypeSlugForCinemeta/$it.json").text
-                if (jsonResponse.startsWith("{")) gson.fromJson(
-                    jsonResponse,
-                    ResponseData::class.java
-                ) else null
+            seasonSection.select(".episode-card").forEach { card ->
+                val cardTitle = card.selectFirst(".episode-title")?.text().orEmpty()
+                val m = titleRegex.find(cardTitle)
+                val epNum = m?.groupValues?.get(2)?.toIntOrNull()
+                    ?: (card.parent()?.children()?.indexOf(card)?.plus(1) ?: 1)
+                val links = card.select("a.movie-download-btn, a.download-button")
+                    .mapNotNull { it.attr("href").trim().takeIf { it.isNotEmpty() } }
+                if (links.isNotEmpty()) episodeMap.getOrPut(epNum) { mutableListOf() }.addAll(links)
             }
 
-        if (tvType == TvType.TvSeries || tvType == TvType.Anime) {
-            val episodes = mutableListOf<Episode>()
-            val seasonSections = downloadRoot?.select("div.season-section") ?: emptyList()
+            seasonSection.select(".packs-grid .pack-card").forEachIndexed { idx, pack ->
+                val link = pack.selectFirst("a.download-button")?.attr("href")?.trim()
+                    .takeIf { !it.isNullOrBlank() } ?: return@forEachIndexed
+                packs += Pair(idx + 1, Pair(link, "Episode ${idx + 1} [Packs/Zips]"))
+            }
 
-            for (seasonSection in seasonSections) {
-                val seasonNum =
-                    seasonNumRegex1.find(seasonSection.html())?.groupValues?.get(1)?.toIntOrNull()
-                        ?: seasonNumRegex2.find(
-                            seasonSection.selectFirst("button.toggle-season-btn")?.text().orEmpty()
-                        )?.groupValues?.get(1)?.toIntOrNull()
-                        ?: 1
-
-                val tmdbSeasonRes: TMDBRes? = runCatching {
-                    val text = app.get(
-                        "$TMDBAPI/tv/$tmdbId/season/$seasonNum?api_key=1865f43a0549ca50d341dd9ab8b29f49&language=en-US"
-                    ).text
-                    gson.fromJson(text, TMDBRes::class.java)
-                }.getOrNull()
-
-                val episodeMap = mutableMapOf<Int, MutableList<String>>()
-                val packs = mutableListOf<Pair<Int, Pair<String, String>>>()
-
-                seasonSection.select(".episode-card").forEach { card ->
-                    val cardTitle = card.selectFirst(".episode-title")?.text().orEmpty()
-                    val m = titleRegex.find(cardTitle)
-                    val epNum = m?.groupValues?.get(2)?.toIntOrNull()
-                        ?: (card.parent()?.children()?.indexOf(card)?.plus(1) ?: 1)
-                    val links = card.select("a.movie-download-btn, a.download-button")
-                        .mapNotNull { it ->
-                            it.attr("href").trim().takeIf { it.isNotEmpty() }
-                        }
-                    if (links.isNotEmpty()) episodeMap.getOrPut(epNum) { mutableListOf() }
-                        .addAll(links)
-                }
-
-                seasonSection.select(".packs-grid .pack-card").forEachIndexed { idx, pack ->
-                    val link =
-                        pack.selectFirst("a.download-button")?.attr("href")?.trim()
-                            .takeIf { !it.isNullOrBlank() }
-                            ?: return@forEachIndexed
-                    val title = "Episode ${idx + 1} [Packs/Zips]"
-                    packs += Pair(idx + 1, Pair(link, title))
-                }
-
-                if (episodeMap.isNotEmpty()) {
-                    for ((epNum, links) in episodeMap) {
-                        val tmdbEpisode =
-                            tmdbSeasonRes?.episodes?.find { it.episodeNumber == epNum }
-                        val info =
-                            responseData?.meta?.videos?.find { it.season == seasonNum && it.episode == epNum }
-                        val name = tmdbEpisode?.name ?: info?.name ?: "Episode $epNum"
-                        val desc = tmdbEpisode?.overview ?: info?.overview
-                        val poster = tmdbEpisode?.stillPath?.let { TMDBIMAGEBASEURL + it }
-                        val score = Score.from10(tmdbEpisode?.voteAverage)
-                        val airDate = tmdbEpisode?.airDate
-
-                        episodes += newEpisode(links.toJson()) {
-                            this.name = name
-                            this.season = seasonNum
-                            this.episode = epNum
-                            this.posterUrl = poster
-                            this.description = desc
-                            this.score = score
-                            this.addDate(airDate)
-                        }
+            if (episodeMap.isNotEmpty()) {
+                for ((epNum, links) in episodeMap) {
+                    val tmdbEpisode = tmdbSeasonRes?.episodes?.find { it.episodeNumber == epNum }
+                    val info = responseData?.meta?.videos?.find { it.season == seasonNum && it.episode == epNum }
+                    episodes += newEpisode(links.toJson()) {
+                        this.name = tmdbEpisode?.name ?: info?.name ?: "Episode $epNum"
+                        this.season = seasonNum
+                        this.episode = epNum
+                        this.posterUrl = tmdbEpisode?.stillPath?.let { TMDBIMAGEBASEURL + it }
+                        this.description = tmdbEpisode?.overview ?: info?.overview
+                        this.score = Score.from10(tmdbEpisode?.voteAverage)
+                        addDate(tmdbEpisode?.airDate)
                     }
-                } else if (packs.isNotEmpty()) {
-                    for ((idx, pair) in packs) {
-                        val (link, title) = pair
-                        val epNum = idx
-                        val tmdbEpisode =
-                            tmdbSeasonRes?.episodes?.find { it.episodeNumber == epNum }
-                        val info =
-                            responseData?.meta?.videos?.find { it.season == seasonNum && it.episode == epNum }
-                        val desc = tmdbEpisode?.overview ?: info?.overview
-                        val poster = tmdbEpisode?.stillPath?.let { TMDBIMAGEBASEURL + it }
-                        val score = Score.from10(tmdbEpisode?.voteAverage)
-                        val airDate = tmdbEpisode?.airDate
-
-                        episodes += newEpisode(listOf(link).toJson()) {
-                            this.name = title
-                            this.season = seasonNum
-                            this.episode = epNum
-                            this.posterUrl = poster
-                            this.description = desc
-                            this.score = score
-                            this.addDate(airDate)
-                        }
+                }
+            } else if (packs.isNotEmpty()) {
+                for ((idx, pair) in packs) {
+                    val (link, epTitle) = pair
+                    val tmdbEpisode = tmdbSeasonRes?.episodes?.find { it.episodeNumber == idx }
+                    episodes += newEpisode(listOf(link).toJson()) {
+                        this.name = epTitle
+                        this.season = seasonNum
+                        this.episode = idx
+                        this.posterUrl = tmdbEpisode?.stillPath?.let { TMDBIMAGEBASEURL + it }
+                        this.description = tmdbEpisode?.overview
+                        this.score = Score.from10(tmdbEpisode?.voteAverage)
+                        addDate(tmdbEpisode?.airDate)
                     }
                 }
             }
-
-            return newTvSeriesLoadResponse(title, url, tvType, episodes) {
-                this.posterUrl = poster
-                this.backgroundPosterUrl = backgroundPoster
-                try { this.logoUrl = logoUrl } catch (_: Throwable) {}
-                this.year = year
-                this.plot = description
-                this.tags = tags.ifEmpty { genres }
-                this.score = rating
-                this.contentRating = source
-                this.actors = actors
-                addImdbId(imdbId)
-            }
         }
 
-        return newMovieLoadResponse(title, url, TvType.Movie, href) {
+        return newTvSeriesLoadResponse(title, url, tvType, episodes) {
             this.posterUrl = poster
             this.backgroundPosterUrl = backgroundPoster
             try { this.logoUrl = logoUrl } catch (_: Throwable) {}
             this.year = year
-            this.plot = description
+            this.plot = finalPlot
             this.tags = tags.ifEmpty { genres }
             this.score = rating
             this.contentRating = source
@@ -357,6 +337,20 @@ class XDMovies : MainAPI() {
             addImdbId(imdbId)
         }
     }
+
+    return newMovieLoadResponse(title, url, TvType.Movie, href) {
+        this.posterUrl = poster
+        this.backgroundPosterUrl = backgroundPoster
+        try { this.logoUrl = logoUrl } catch (_: Throwable) {}
+        this.year = year
+        this.plot = finalPlot
+        this.tags = tags.ifEmpty { genres }
+        this.score = rating
+        this.contentRating = source
+        this.actors = actors
+        addImdbId(imdbId)
+    }
+}
 
     override suspend fun loadLinks(
         data: String,
