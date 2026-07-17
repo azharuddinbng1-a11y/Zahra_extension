@@ -335,42 +335,54 @@ class XDMovies : MainAPI() {
     }
 
     override suspend fun loadLinks(
-        data: String,
-        isCasting: Boolean,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ): Boolean {
-        if (data.isBlank()) return false
+    data: String,
+    isCasting: Boolean,
+    subtitleCallback: (SubtitleFile) -> Unit,
+    callback: (ExtractorLink) -> Unit
+): Boolean {
+    if (data.isBlank()) return false
 
-        val links = runCatching {
-            JSONArray(data).let { arr ->
-                buildList(arr.length()) {
-                    for (i in 0 until arr.length()) {
-                        arr.optString(i).trim().takeIf { it.isNotEmpty() }?.let { add(it) }
-                    }
+    val links = runCatching {
+        JSONArray(data).let { arr ->
+            buildList(arr.length()) {
+                for (i in 0 until arr.length()) {
+                    arr.optString(i).trim().takeIf { it.isNotEmpty() }?.let { add(it) }
                 }
             }
-        }.getOrElse {
-            listOf(data.trim()).filter { it.isNotEmpty() }
         }
-
-        if (links.isEmpty()) return false
-
-        val successCount = AtomicInteger(0)
-
-        coroutineScope {
-            links.map { link ->
-                launch(Dispatchers.IO) {
-                    runCatching {
-                        loadExtractor(link, name, subtitleCallback, callback)
-                        successCount.incrementAndGet()
-                    }.onFailure {
-                        Log.e("XDMovies", "Failed to load link: $link")
-                    }
-                }
-            }.joinAll()
-        }
-
-        return successCount.get() > 0
+    }.getOrElse {
+        listOf(data.trim()).filter { it.isNotEmpty() }
     }
+
+    if (links.isEmpty()) return false
+
+    val successCount = AtomicInteger(0)
+
+    coroutineScope {
+        links.map { link ->
+            launch(Dispatchers.IO) {
+                runCatching {
+                    when {
+                        // ✅ Explicit route — auto-match pe depend nahi
+                        link.contains("link.xdmovies.wtf", ignoreCase = true) -> {
+                            XdMoviesExtractor().getUrl(link, name, subtitleCallback, callback)
+                        }
+                        link.contains("hubcloud", ignoreCase = true) -> {
+                            HubCloud().getUrl(link, name, subtitleCallback, callback)
+                        }
+                        link.contains("hubdrive", ignoreCase = true) -> {
+                            Hubdrive().getUrl(link, name, subtitleCallback, callback)
+                        }
+                        else -> loadExtractor(link, name, subtitleCallback, callback)
+                    }
+                    successCount.incrementAndGet()
+                }.onFailure {
+                    Log.e("XDMovies", "Failed: $link — ${it.message}")
+                }
+            }
+        }.joinAll()
+    }
+
+    return successCount.get() > 0
+}
 }
