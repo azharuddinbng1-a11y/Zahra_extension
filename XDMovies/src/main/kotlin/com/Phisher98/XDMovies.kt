@@ -36,6 +36,7 @@ import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
+import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -55,7 +56,6 @@ class XDMovies : MainAPI() {
             "x-requested-with" to "XMLHttpRequest"
         )
 
-        // Shared CloudflareKiller — session/cookies reuse hoti hain
         val cloudflareKiller by lazy { CloudflareKiller() }
 
         private val gson = Gson()
@@ -72,6 +72,24 @@ class XDMovies : MainAPI() {
 
         private fun Element.safeText(selector: String) = this.selectFirst(selector)?.text().orEmpty()
         private fun Element.safeAttr(selector: String, attr: String) = this.selectFirst(selector)?.attr(attr).orEmpty()
+
+        // ✅ Smart fetch: pehle plain request, fail/blocked hone par CloudflareKiller
+        suspend fun smartGet(url: String): Document {
+            val plain = runCatching {
+                app.get(url, timeout = 15000L).document
+            }.getOrNull()
+
+            val plainText = plain?.text().orEmpty()
+            val looksBlocked = plain == null ||
+                    plainText.contains("Just a moment", ignoreCase = true) ||
+                    plainText.contains("Verify you are human", ignoreCase = true) ||
+                    plainText.contains("Checking your browser", ignoreCase = true) ||
+                    plainText.length < 200
+
+            if (!looksBlocked) return plain!!
+
+            return app.get(url, interceptor = cloudflareKiller, timeout = 30000L).document
+        }
     }
 
     override val mainPage = mainPageOf(
@@ -95,7 +113,7 @@ class XDMovies : MainAPI() {
             "$mainUrl/${request.data}&page=$page"
         }
 
-        val document = app.get(url, interceptor = cloudflareKiller, timeout = 30000L).document
+        val document = smartGet(url)
         val home = document.select("div.movie-grid a").mapNotNull { it.toSearchResult() }
 
         return newHomePageResponse(
@@ -148,7 +166,7 @@ class XDMovies : MainAPI() {
     }
 
     override suspend fun load(url: String): LoadResponse {
-        val document = app.get(url, interceptor = cloudflareKiller, timeout = 30000L).document
+        val document = smartGet(url)
 
         val title = document.selectFirst("div.info h2")?.text().orEmpty()
         val poster = document.selectFirst("img.poster")?.attr("src")
